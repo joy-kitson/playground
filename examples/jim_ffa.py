@@ -13,10 +13,15 @@ def main():
 
     # Create a set of agents (exactly four)
     agent_list = [
-        agents.RandomAgent(),
-        agents.LeopoldAgent()
+        #agents.SimpleAgent(),
+        agents.LeopoldAgent(),
+        agents.SimpleAgent()
         # agents.DockerAgent("pommerman/simple-agent", port=12345),
     ]
+
+    print("------")
+    print(agent_list)
+    print("-------")
     # Make the "Free-For-All" environment using the agent list
     env = pommerman.make('PommeFFACompetition-v0', agent_list)
 
