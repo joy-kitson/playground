@@ -47,6 +47,34 @@ class LeopoldAgent(BaseAgent):
 
         return threats
 
+"""
+
+
+Beliefs
+---------
+[neighbors, threats, powerup locations]
+
+Desires
+-------------
+[flee, kill, get power ups, clear env]
+
+Intentions
+-------------
+
+flee - go as far away from enemy as possible
+clear_env - if we have nothing better to do
+kill - hunt down enemy (do this if we are more powered up than the enemy)
+get power ups - hunt for powerups if close enough and not obstructed (to a point) by wood
+
+Reconsidering
+----
+if we are threatned by a bomb, flee from bomb
+if we think we are more powered up than the other player, hunt them down
+if the other player is really close to us and is more powerful than us, flee
+
+
+"""
+    
 
     def get_neighbors(self, obs,r,c):
         neighbors = []
