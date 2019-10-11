@@ -14,8 +14,11 @@ class Node():
     def __eq__(self, other):
         return self.position == other.position
 
+    def __hash__(self):
+        return self.position.__hash__()
 
-def astar(maze, start, end, passable):
+
+def astar(maze, start, end, passables):
     """Returns a list of tuples as a path from the given start to the given end in the given maze"""
 
     # Create start and end node
@@ -25,28 +28,21 @@ def astar(maze, start, end, passable):
     end_node.g = end_node.h = end_node.f = 0
 
     # Initialize both open and closed list
-    open_list = []
-    closed_list = []
+    open_list = set()
+    closed_list = set()
 
     # Add the start node
-    open_list.append(start_node)
+    open_list.add(start_node)
 
     # Loop until you find the end
     while len(open_list) > 0:
-        print("A")
 
         # Get the current node
-        current_node = open_list[0]
-        current_index = 0
-        for index, item in enumerate(open_list):
-            if item.f < current_node.f:
-                current_node = item
-                current_index = index
+        current_node = min(open_list, key=lambda n: n.f)
+        open_list -= {current_node}
 
         # Pop current off open list, add to closed list
-        open_list.pop(current_index)
-        closed_list.append(current_node)
-
+        closed_list.add(current_node)
         # Found the goal
         if current_node == end_node:
             path = []
@@ -68,7 +64,7 @@ def astar(maze, start, end, passable):
                 continue
 
             # Make sure walkable terrain
-            if maze[node_position[0]][node_position[1]] not in passable:
+            if maze[node_position[0]][node_position[1]] not in passables:
                 continue
 
             # Create new node
@@ -81,19 +77,21 @@ def astar(maze, start, end, passable):
         for child in children:
 
             # Child is on the closed list
-            for closed_child in closed_list:
-                if child == closed_child:
-                    continue
+            if child in closed_list:
+                continue
 
             # Create the f, g, and h values
             child.g = current_node.g + 1
-            child.h = abs(child.position[0] - end_node.position[0]) + abs(child.position[1] - end_node.position[1])
+            child.h = ((child.position[0] - end_node.position[0]) ** 2) + ((child.position[1] - end_node.position[1]) ** 2)
             child.f = child.g + child.h
 
             # Child is already in the open list
+            flag = False
             for open_node in open_list:
                 if child == open_node and child.g > open_node.g:
-                    continue
+                    flag = True
+            if flag:
+                continue
 
             # Add the child to the open list
-            open_list.append(child)
+            open_list.add(child)

@@ -30,8 +30,11 @@ class Node():
     def __eq__(self, other):
         return self.position == other.position
 
+    def __hash__(self):
+        return self.position.__hash__()
 
-def astar(maze, start, end, passable):
+
+def astar(maze, start, end, passables):
     """Returns a list of tuples as a path from the given start to the given end in the given maze"""
 
     # Create start and end node
@@ -41,29 +44,21 @@ def astar(maze, start, end, passable):
     end_node.g = end_node.h = end_node.f = 0
 
     # Initialize both open and closed list
-    open_list = []
-    closed_list = []
+    open_list = set()
+    closed_list = set()
 
     # Add the start node
-    open_list.append(start_node)
+    open_list.add(start_node)
 
     # Loop until you find the end
     while len(open_list) > 0:
-        #print("Open",[node.position for node in open_list])
-        #print("Closed",[node.position for node in closed_list])
 
         # Get the current node
-        current_node = open_list[0]
-        current_index = 0
-        for index, item in enumerate(open_list):
-            if item.f < current_node.f:
-                current_node = item
-                current_index = index
+        current_node = min(open_list, key=lambda n: n.f)
+        open_list -= {current_node}
 
         # Pop current off open list, add to closed list
-        open_list.pop(current_index)
-        closed_list.append(current_node)
-
+        closed_list.add(current_node)
         # Found the goal
         if current_node == end_node:
             path = []
@@ -85,7 +80,7 @@ def astar(maze, start, end, passable):
                 continue
 
             # Make sure walkable terrain
-            if maze[node_position[0]][node_position[1]] not in passable:
+            if maze[node_position[0]][node_position[1]] not in passables:
                 continue
 
             # Create new node
@@ -98,38 +93,24 @@ def astar(maze, start, end, passable):
         for child in children:
 
             # Child is on the closed list
-            """
-            for closed_child in closed_list:
-                if child == closed_child:
-                    continue
-
-            """
-
             if child in closed_list:
                 continue
 
-            
             # Create the f, g, and h values
             child.g = current_node.g + 1
-            child.h = abs(child.position[0] - end_node.position[0]) + abs(child.position[1] - end_node.position[1])
+            child.h = ((child.position[0] - end_node.position[0]) ** 2) + ((child.position[1] - end_node.position[1]) ** 2)
             child.f = child.g + child.h
 
             # Child is already in the open list
-            # Child is already in the open list
-            for open_node in open_list:
-                if child == open_node and child.g > open_node.g:
-                    continue
-            """
             flag = False
             for open_node in open_list:
                 if child == open_node and child.g > open_node.g:
                     flag = True
             if flag:
                 continue
-            """
 
             # Add the child to the open list
-            open_list.append(child)
+            open_list.add(child)
 
 """
 
@@ -198,6 +179,7 @@ class LeopoldAgent(BaseAgent):
     def random_action(self, action_space):
         return action_space.sample()
 
+    
     def find_threats(self, obs, posn):
         r, c = posn
 
@@ -206,11 +188,38 @@ class LeopoldAgent(BaseAgent):
         threats |= {(b_r, c) for b_r in range(10) if constants.Item.Bomb.value == obs['board'][b_r, c]}
 
         # check whether or not there's flames here
-        if (constants.Item.Flames.value == obs['board'][r,c]):
+        if (constants.Item.Flames.value == obs['board'][r,c]) or obs['bomb_life'][r,c] > 0:
             threats |= {(r,c)}
 
         return threats
-    
+
+    def is_threatened(self, obs, posn):
+        r, c = posn
+
+        #TODO: go back and look at distance vs bomb strength
+
+        # find any bombs in the same row/col as this space
+        for b_c in range(10):
+            if constants.Item.Bomb.value == obs['board'][r, b_c]:
+                return True
+        for b_r in range(10):
+            if constants.Item.Bomb.value == obs['board'][b_r, c]:
+                return True
+
+        # check whether or not there's flames here
+        if (constants.Item.Flames.value == obs['board'][r,c]) or obs['bomb_life'][r,c] > 0:
+            return True
+
+        return False
+
+    def find_threatened_spaces(self, obs):
+        threatened = set()
+        for r in range(len(obs['board'])):
+            for c in range(len(obs['board'])):
+                if self.is_threatened(obs, (r,c)):
+                    threatened.add((r, c))
+        return threatened
+                
 
     def get_neighbors(self, obs,posn):
         neighbors = []
@@ -296,7 +305,7 @@ class LeopoldAgent(BaseAgent):
         for r in range(len(obs['board'])):
             for c in range(len(obs['board'][0])):
                 if obs['board'][r,c] in item_types:
-                    found_items.append( (r,c,obs['board'][r,c]) )
+                    found_items.append( (r, c) )
 
         return found_items
 
@@ -309,7 +318,8 @@ class LeopoldAgent(BaseAgent):
         beliefs['obs'] = obs
         beliefs['position'] = (r,c)
         beliefs['neighbors'] = self.get_neighbors(obs,beliefs['position'])
-        beliefs['threats'] = {(r_n,c_n): self.find_threats(obs,(r_n,c_n)) for r_n,c_n,t_n in beliefs['neighbors'] + [(r,c,-1)]}
+        #beliefs['threats'] = {(r_n,c_n): self.find_threats(obs,(r_n,c_n)) for r_n,c_n,t_n in beliefs['neighbors'] + [(r,c,-1)]}
+        beliefs['threatened'] = self.find_threatened_spaces(obs)
         beliefs['powerups'] = self.find_objects(obs,LeopoldAgent.power_ups)
         beliefs['enemies'] = self.find_objects(obs, obs['enemies'])
         beliefs['wood'] = self.find_objects(obs, [constants.Item.Wood.value])
@@ -317,12 +327,49 @@ class LeopoldAgent(BaseAgent):
         return beliefs
 
     def reconsider(self, intentions, beliefs):
+        print("RECONSIDERING")
         dest = intentions['go_to']
-        if dest and dest in beliefs['threats'].keys() and beliefs['threats'][dest]:
+        
+        if dest and dest in beliefs['threatened']:
             return True
+        if dest and dest == beliefs['position']:
+            return True
+        
+        bomb_dest = intentions['drop_bomb_at']
+        #bomb_locs = [(r,c) for r,c,s in beliefs['obs']['bombs']]
+        #if bomb_dest and bomb_dest in beliefs['obs']['bombs']:
+        if bomb_dest and beliefs['obs']['bomb_life'][bomb_dest[0], bomb_dest[1]] > 0:
+            return True
+    
+
 
     def intention_filter(self, beliefs, desires, intentions):
+        dest = intentions['go_to']
+        if dest and dest == beliefs['position']:
+            #print("HERE")
+            intentions['go_to'] = None
+
+        bomb_dest = intentions['drop_bomb_at']
+        #bomb_locs = [(r,c) for r,c,s in beliefs['obs']['bombs']]
+        #if bomb_dest and bomb_dest in beliefs['obs']['bombs']:
+        if bomb_dest and beliefs['obs']['bomb_life'][bomb_dest[0], bomb_dest[1]] > 0:
+            intentions['drop_bomb_at'] = None
+
         if desires[0] == LeopoldAgent.Desires.FLEE:
+            #Find nearest spot that's empty and not in threats
+            safe_spots = set(self.find_objects(beliefs['obs'],[0])) - beliefs['threatened']
+            paths = {location: astar(beliefs['obs']['board'], beliefs['position'], location[0:2], LeopoldAgent.passables) for location in safe_spots}
+            nearest_safe = min(paths, key=lambda p: len(paths[p]) if paths[p] else np.Infinity)
+
+            print(safe_spots)
+
+            dest = nearest_safe[0:2]
+
+            intentions['go_to'] = dest
+            beliefs['routes'][dest] = paths[nearest_safe]  
+
+            path = paths[nearest_safe]
+
             pass
         elif desires[0] == LeopoldAgent.Desires.POWER_UP:
             paths = {powerup: astar(beliefs['obs']['board'], beliefs['position'], powerup[0:2], LeopoldAgent.passables) for powerup in beliefs['powerups']}
@@ -331,18 +378,22 @@ class LeopoldAgent(BaseAgent):
             beliefs['routes'][nearest_powerup[0:2]] = paths[nearest_powerup]  
             
         elif desires[0] == LeopoldAgent.Desires.CLEAR_ENV:
-            #print(beliefs['wood'])
-            print("Gonna find paths")
-            paths = {wood: astar(beliefs['obs']['board'], beliefs['position'], wood[0:2], LeopoldAgent.passables+[constants.Item.Wood]) for wood in beliefs['wood'][0:1]}
-            print("Found paths")
-            print(paths)
-            nearest_wood = max(paths, key=lambda p: len(paths[p]) if paths[p] else np.Infinity) 
+            paths = {wood: astar(beliefs['obs']['board'], beliefs['position'], wood[0:2], LeopoldAgent.passables+[constants.Item.Wood.value]) for wood in beliefs['wood']}
+            nearest_wood = min(paths, key=lambda p: len(paths[p]) if paths[p] else np.Infinity) 
 
-            print("Nearest Wood:", nearest_wood)
-            print("Path to",paths[nearest_wood])
+          
+            #print("Nearest Wood: ", nearest_wood[0:2])
+            #print(paths)
+            #print("Path to Nearest wood: ",paths[nearest_wood])
 
-            intentions['go_to'] = nearest_wood[0:2]
-            beliefs['routes'][nearest_wood[0:2]] = paths[nearest_wood]  
+            #We don't actually go to the wood, but rather an adjacent space
+            path = paths[nearest_wood]
+            path.pop()
+            dest = path[-1]
+
+            intentions['go_to'] = dest
+            intentions['drop_bomb_at'] = dest
+            beliefs['routes'][dest] = path
 
         elif desires[0] == LeopoldAgent.Desires.KILL:
             pass
@@ -360,33 +411,45 @@ class LeopoldAgent(BaseAgent):
 
             delta = (r - r_l, c - c_l)
             if delta == (-1, 0):
-                actions.append(constants.Action.Down)
-            elif delta == (1,0):
                 actions.append(constants.Action.Up)
+            elif delta == (1,0):
+                actions.append(constants.Action.Down)
             elif delta == (0,1):
                 actions.append(constants.Action.Right)
             elif delta == (0,-1):
                 actions.append(constants.Action.Left)
 
-        return actions
+        # reverse the order of the actions, so we can pop them properly
+        return actions[::-1]
 
     def plan(self, beliefs, intentions):
-        dest = intentions['go_to']
+        actions = []
 
         if intentions['go_to']:
+            r,c = dest = intentions['go_to']
             if beliefs['routes'][dest]:
-                return path_to_actions(beliefs['routes'][dest])
+                actions = self.path_to_actions(beliefs['routes'][dest])
+                
+                if intentions['drop_bomb_at'] == dest:
+                    actions.insert(0,constants.Action.Bomb.value)
+        
+        if actions:
+            return actions
+        else:
+            return [constants.Action.Stop]
 
-
-        return [constants.Action.Stop]
-
-    def sound(self, current_plan, beliefs):
-        return True
+    def sound(self, current_plan, intentions, beliefs):
+        return len(current_plan) > 0
 
     def options(self, beliefs, intentions):
-        """
-        if beliefs['threats'][beliefs['position']]:
+        print("CHANGING DESIRE")
+        print(beliefs['threatened'])
+        if beliefs['position'] in beliefs['threatened']:
+            print("IM IN DANGER")
             return [LeopoldAgent.Desires.FLEE]
+        else:
+            return [LeopoldAgent.Desires.CLEAR_ENV]
+        """
         elif beliefs['powerups']:
             return [LeopoldAgent.Desires.POWER_UP]
         elif beliefs['wood']:
@@ -399,17 +462,20 @@ class LeopoldAgent(BaseAgent):
         #else:
         #    return [LeopoldAgent.Desires.CHILL]
 
-        return [LeopoldAgent.Desires.CLEAR_ENV]
+        #return [LeopoldAgent.Desires.CLEAR_ENV]
 
     def act(self,obs,action_space):
+        #print(obs)
+        print("BEFORE PLAN:", self.current_plan)
         self.beliefs = self.brf(self.beliefs, obs)
         if not self.current_plan or self.reconsider(self.intentions, self.beliefs):
             self.desires = self.options(self.beliefs, self.intentions)
             self.intentions = self.intention_filter(self.beliefs, self.desires, self.intentions)
         
-        if not self.current_plan or self.sound(self.current_plan, self.intentions, self.beliefs):
+        if not self.current_plan or not self.sound(self.current_plan, self.intentions, self.beliefs):
             self.current_plan = self.plan(self.beliefs, self.intentions)
-    
+
+        print("PLAN:",self.current_plan,"DESIRES:",self.desires)
         return self.current_plan.pop()
 
 
