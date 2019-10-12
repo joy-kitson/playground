@@ -15,9 +15,9 @@ def main():
     agent_list = [
         #agents.SimpleAgent(),
         agents.LeopoldAgent(),
+        agents.SimpleAgent(),
+        agents.SimpleAgent(),
         agents.SimpleAgent()
-        #agents.SimpleAgent(),
-        #agents.SimpleAgent()
         # agents.DockerAgent("pommerman/simple-agent", port=12345),
     ]
 
@@ -30,12 +30,12 @@ def main():
     # Run the episodes just like OpenAI Gym
     #n = 100
     winners = [0,0,0]
-    n=10
+    n=1
     for i_episode in range(n):
         state = env.reset()
         done = False
         while not done:
-            #env.render()
+            env.render()
             #input()
             actions = env.act(state)
             state, reward, done, info = env.step(actions)
