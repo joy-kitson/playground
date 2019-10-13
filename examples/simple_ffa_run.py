@@ -13,7 +13,7 @@ def main():
 
     # Create a set of agents (exactly four)
     agent_list = [
-        agents.SimpleAgent(),
+        agents.JukeBot(),
         agents.RandomAgent(),
         agents.SimpleAgent(),
         agents.RandomAgent(),

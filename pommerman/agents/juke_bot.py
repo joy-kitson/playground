@@ -1,6 +1,3 @@
-'''The base simple agent use to train agents.
-This agent is also the benchmark for other agents.
-'''
 from collections import defaultdict
 import queue
 import random
@@ -14,8 +11,8 @@ from .. import constants
 from .. import utility
 
 
-#https://medium.com/@nicholas.w.swift/easy-a-star-pathfinding-7e6689c7f7b2
-
+# Code for A* pathfinding based off of this article
+# https://medium.com/@nicholas.w.swift/easy-a-star-pathfinding-7e6689c7f7b2
 class Node():
     """A node class for A* Pathfinding"""
 
@@ -113,18 +110,7 @@ def astar(maze, start, end, passables):
             open_list.add(child)
 
 
-class LeopoldAgent(BaseAgent):
-    """This is a baseline agent. After cou can beat it, submit cour agent to
-    compete.
-    """
-
-    """
-    James Jocce
-
-    Avoid path of bombs
-
-    Do random actions (Moving and placing bombs)
-    """
+class JukeBot(BaseAgent):
 
     class Desires(Enum):
         FLEE = 0
@@ -134,11 +120,11 @@ class LeopoldAgent(BaseAgent):
         HIDE = 4
 
     def __init__(self, *args, **kwargs):
-        super(LeopoldAgent, self).__init__(*args, **kwargs)
+        super(JukeBot, self).__init__(*args, **kwargs)
         self.action_queue = queue.PriorityQueue()
 
         self.beliefs = {'position': (), 'obs': [], 'threats': [], 'powerups': [], 'neighbors':[], 'enemies': [], 'wood': [], 'routes': {}}
-        self.desires = [LeopoldAgent.Desires.POWER_UP]
+        self.desires = [JukeBot.Desires.POWER_UP]
         self.intentions = {'go_to': None, 'avoid': [], 'drop_bomb_at': None, 'wait': None}
         self.current_plan = []
 
@@ -161,6 +147,7 @@ class LeopoldAgent(BaseAgent):
 
         return False
 
+    # Find spaces that threaten us
     def find_threatened_spaces(self, obs):
         threatened = set()
         for r in range(len(obs['board'])):
@@ -169,6 +156,7 @@ class LeopoldAgent(BaseAgent):
                     threatened.add((r, c))
         return threatened
                 
+    # Get the spaces adjacent to us
     def get_neighbors(self, obs,posn):
         neighbors = []
         BOARD_SIZE =10
@@ -188,6 +176,7 @@ class LeopoldAgent(BaseAgent):
 
         return neighbors
                 
+    # Returns back board locations of certain objects
     def find_objects(self,obs,item_types):
         found_items = []
         for r in range(len(obs['board'])):
@@ -200,6 +189,7 @@ class LeopoldAgent(BaseAgent):
     power_ups = [constants.Item.ExtraBomb.value, constants.Item.IncrRange.value, constants.Item.Kick.value]
     passables = power_ups + [constants.Item.Passage.value]
 
+    # Change our current beliefs of the world
     def brf(self,beliefs,obs):
         r, c = obs['position']
 
@@ -208,8 +198,9 @@ class LeopoldAgent(BaseAgent):
         beliefs['neighbors'] = self.get_neighbors(obs,beliefs['position'])
         beliefs['threatened'] = self.find_threatened_spaces(obs)
 
-        power_up_list = self.find_objects(obs,LeopoldAgent.power_ups)
-        power_up_paths = {power_up: astar(beliefs['obs']['board'], beliefs['position'], power_up, LeopoldAgent.passables) for power_up in power_up_list}
+        # Only list powerups that are within range
+        power_up_list = self.find_objects(obs,JukeBot.power_ups)
+        power_up_paths = {power_up: astar(beliefs['obs']['board'], beliefs['position'], power_up, JukeBot.passables) for power_up in power_up_list}
 
         valid_powerups = []
         for power_up in power_up_paths:
@@ -226,6 +217,7 @@ class LeopoldAgent(BaseAgent):
 
     ##TODO: Fix where there's wood left but its impossible to reach and we don't start fleeing.
 
+    # See if our intention makes sense
     def reconsider(self, intentions, beliefs):
         dest = intentions['go_to']
         
@@ -242,6 +234,7 @@ class LeopoldAgent(BaseAgent):
             intentions['drop_bomb_at'] = None
             return True
     
+    # If the given path contains a threat
     def contains_threat(self, path, threats):
         for node in path:
             if node in threats:
@@ -261,10 +254,10 @@ class LeopoldAgent(BaseAgent):
             intentions['drop_bomb_at'] = None
 
         # If we want to FLEE
-        if desires[0] == LeopoldAgent.Desires.FLEE:
+        if desires[0] == JukeBot.Desires.FLEE:
             # Find nearest spot that's empty and not in threats
             safe_spots = set(self.find_objects(beliefs['obs'], [constants.Item.Passage.value])) - beliefs['threatened']
-            paths = {location: astar(beliefs['obs']['board'], beliefs['position'], location[0:2], LeopoldAgent.passables+[constants.Item.Bomb.value]) for location in safe_spots}
+            paths = {location: astar(beliefs['obs']['board'], beliefs['position'], location[0:2], JukeBot.passables+[constants.Item.Bomb.value]) for location in safe_spots}
             
             # Go to that spot
             if paths:
@@ -274,9 +267,9 @@ class LeopoldAgent(BaseAgent):
                 beliefs['routes'][dest] = paths[nearest_safe]  
 
         # If we want to POWERUP
-        elif desires[0] == LeopoldAgent.Desires.POWER_UP and beliefs['powerups']:
+        elif desires[0] == JukeBot.Desires.POWER_UP and beliefs['powerups']:
             # Find a path to all the powerups
-            paths = {powerup: astar(beliefs['obs']['board'], beliefs['position'], powerup[0:2], LeopoldAgent.passables) for powerup in beliefs['powerups']}
+            paths = {powerup: astar(beliefs['obs']['board'], beliefs['position'], powerup[0:2], JukeBot.passables) for powerup in beliefs['powerups']}
             
             if paths:
                 # Take the shortest path
@@ -291,11 +284,11 @@ class LeopoldAgent(BaseAgent):
                 intentions['go_to'] = dest
                 beliefs['routes'][dest] = paths[nearest_powerup]  
 
-            
-        elif desires[0] == LeopoldAgent.Desires.CLEAR_ENV and beliefs['wood']:
+        # If we want to CLEAR THE ENVIRONMENT
+        elif desires[0] == JukeBot.Desires.CLEAR_ENV and beliefs['wood']:
             # Find the paths to wood on the board
             
-            paths = {wood: astar(beliefs['obs']['board'], beliefs['position'], wood[0:2], LeopoldAgent.passables+[constants.Item.Wood.value]) for wood in beliefs['wood']}
+            paths = {wood: astar(beliefs['obs']['board'], beliefs['position'], wood[0:2], JukeBot.passables+[constants.Item.Wood.value]) for wood in beliefs['wood']}
             if paths:
 
                 # Find the closest
@@ -319,18 +312,18 @@ class LeopoldAgent(BaseAgent):
         # There should be a new, stronger word for killing like badwrong or badong. 
         # YES, killing is badong!
         # From this moment, I will stand for the opposite of killing, gnodab.
-        elif desires[0] == LeopoldAgent.Desires.KILL:
+        elif desires[0] == JukeBot.Desires.KILL:
             pass
 
         # If we desire to HIDE from the enemy
-        elif desires[0] == LeopoldAgent.Desires.HIDE:
+        elif desires[0] == JukeBot.Desires.HIDE:
             safe_spots = set(self.find_objects(beliefs['obs'], [constants.Item.Passage.value])) - beliefs['threatened']
             found_enemy = self.find_objects(beliefs['obs'], [enemy.value for enemy in beliefs['obs']['enemies']])[0]
-            paths = {location: astar(beliefs['obs']['board'], found_enemy, location[0:2], LeopoldAgent.passables+[constants.Item.Bomb.value]) for location in safe_spots}
+            paths = {location: astar(beliefs['obs']['board'], found_enemy, location[0:2], JukeBot.passables+[constants.Item.Bomb.value]) for location in safe_spots}
             
             if paths:
                 farthest_path_location = max(paths, key=lambda p: len(paths[p]) if paths[p] and not self.contains_threat(paths[p],beliefs['threatened']) else -np.Infinity)
-                path_to_farthest_location = astar(beliefs['obs']['board'], beliefs['position'], farthest_path_location, LeopoldAgent.passables)
+                path_to_farthest_location = astar(beliefs['obs']['board'], beliefs['position'], farthest_path_location, JukeBot.passables)
                 dest = farthest_path_location
 
                 if path_to_farthest_location and self.contains_threat(path_to_farthest_location,beliefs['threatened']):
@@ -415,7 +408,7 @@ class LeopoldAgent(BaseAgent):
                         if (r,c) in beliefs['threatened']:
                             safe_board[r,c] = constants.Item.Rigid.value
 
-                new_path = astar(safe_board, beliefs['position'], dest, LeopoldAgent.passables)
+                new_path = astar(safe_board, beliefs['position'], dest, JukeBot.passables)
                 beliefs['routes'][dest] = new_path
                 return False
 
@@ -426,19 +419,19 @@ class LeopoldAgent(BaseAgent):
     def options(self, beliefs, intentions):
         # Most important: if we think we are threatened, get out of danger!
         if beliefs['position'] in beliefs['threatened']:
-            return [LeopoldAgent.Desires.FLEE]
+            return [JukeBot.Desires.FLEE]
 
         #If there's a powerup we can get to, go get it!
         elif beliefs['powerups']:
-            return [LeopoldAgent.Desires.POWER_UP]
+            return [JukeBot.Desires.POWER_UP]
 
         #If there's still wood to be cleared, clear it!
         elif beliefs['wood']:
-            return [LeopoldAgent.Desires.CLEAR_ENV]
+            return [JukeBot.Desires.CLEAR_ENV]
 
         #We're pacifists, so run away if there's nothing better to do!
         else:
-            return [LeopoldAgent.Desires.HIDE]
+            return [JukeBot.Desires.HIDE]
 
     def act(self,obs,action_space):
         # A custom agent using the BDI arch.
