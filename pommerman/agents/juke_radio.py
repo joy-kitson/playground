@@ -154,7 +154,16 @@ class JukeRadio(BaseAgent):
         super(JukeRadio, self).__init__(*args, **kwargs)
         self.action_queue = queue.PriorityQueue()
 
-        self.beliefs = {'position': (), 'obs': [], 'threats': [], 'powerups': [], 'neighbors':[], 'enemies': [], 'wood': [], 'routes': {}}
+        self.beliefs = {'position': (), 
+                        'obs': [], 
+                        'threats': [], 
+                        'powerups': [], 
+                        'neighbors':[], 
+                        'enemies': [], 
+                        'wood': [], 
+                        'routes': {},
+                        'shared_board': None,
+                        'board_memory': None}
         self.desires = [JukeRadio.Desires.POWER_UP]
         self.intentions = {'go_to': None, 'avoid': [], 'drop_bomb_at': None, 'wait': None}
         self.current_plan = []
@@ -218,16 +227,80 @@ class JukeRadio(BaseAgent):
         return found_items
 
     power_ups = [constants.Item.ExtraBomb.value, constants.Item.IncrRange.value, constants.Item.Kick.value]
-    passables = power_ups + [constants.Item.Passage.value, constants.Item.Fog.value]
+    #passables = power_ups + [constants.Item.Passage.value, constants.Item.Fog.value]
+    passables = power_ups + [constants.Item.Passage.value]
+
+    def process_messages(self, obs, beliefs):
+        if obs['step_count'] == 0:
+            beliefs['shared_board'] = obs['board']
+        if obs["message"][0] != 0:
+            message_received = int_to_struct(obs["message"][0])
+
+            my_board = obs["board"]
+            their_board = message_received["inform"]["beliefs"]["obs"]["board"]
+
+            fused_board = np.zeros(my_board.shape, dtype=int)
+            #print(len(my_board))
+            for i in range(0,len(my_board)):
+                for j in range(0, len(my_board)):
+                    #print(my_board[i][j])
+                    #fused_board[i][j] = their_board[i][j]
+                    if my_board[i][j] == 5 and their_board[i][j] != 5:
+                        fused_board[i][j] = their_board[i][j]
+                    elif my_board[i][j] != 5 and their_board[i][j] == 5:
+                        fused_board[i][j] = my_board[i][j]
+                    else:
+                        fused_board[i][j] = 5
+
+            beliefs["shared_board"] = fused_board
+
+        
+        #print(beliefs['shared_board'])
+        return beliefs
+
+    #Keeps track of past states of the board so we at least remember some things
+    def update_board_memory(self, obs, beliefs,current_board_obs):
+        if obs['step_count'] == 0:
+            beliefs['board_memory'] = obs['board']
+        else:
+            #current_board_obs = obs['board']
+            board_memory = beliefs['board_memory']
+
+            for i in range(len(current_board_obs)):
+                for j in range(len(current_board_obs)):
+                    if current_board_obs[i][j] != 5:
+                        board_memory[i][j] = current_board_obs[i][j]
+
+            beliefs['board_memory'] = board_memory
+
+
+        #if obs["teammate"].value == 12:
+            #print(current_board_obs)
+        #    print("SHARED",current_board_obs)
+        #    print("MERGED",beliefs['board_memory'])
+
+        return beliefs
 
     # Change our current beliefs of the world
     def brf(self,beliefs,obs):
+        beliefs['obs'] = obs
+
+        beliefs = self.process_messages(obs, beliefs)
+        #beliefs['obs']['board'] = beliefs["shared_board"]
+        beliefs = self.update_board_memory(obs,beliefs,beliefs['shared_board'])
+        #beliefs['obs']['board'] = beliefs['board_memory']
+
         r, c = obs['position']
 
-        beliefs['obs'] = obs
+        #beliefs['obs']['board'] = beliefs['board_memory']
+
+        #if obs["teammate"].value == 12:
+        #    print(beliefs['shared_board'])
+            #print(beliefs['obs']['board'])
+
         beliefs['position'] = (r,c)
         beliefs['neighbors'] = self.get_neighbors(obs,beliefs['position'])
-        beliefs['threatened'] = self.find_threatened_spaces(obs)
+        beliefs['threatened'] = self.find_threatened_spaces(beliefs['obs'])
 
         # Only list powerups that are within range
         power_up_list = self.find_objects(obs,JukeRadio.power_ups)
@@ -469,7 +542,10 @@ class JukeRadio(BaseAgent):
         else:
             return [JukeRadio.Desires.HIDE]
 
+   
+
     def act(self,obs,action_space):
+
         # A custom agent using the BDI arch.
         #message = obs['message']
 
@@ -501,34 +577,7 @@ class JukeRadio(BaseAgent):
 
         self.message_to_send = {"request": [], "inform": {"beliefs": self.beliefs}, "inquire": []}
 
-        if obs["message"][0] != 0 and obs["teammate"].value == 12:
-            #print(obs["teammate"].value)
-            message_received = int_to_struct(obs["message"][0])
-            #print("MY VIEW")
-            my_board = obs["board"]
-            #print(my_board)
-            #print("OTHER VIEW")
-            their_board = message_received["inform"]["beliefs"]["obs"]["board"]
-            #print(their_board)
-            #print("FUSION HA")
-
-            fused_board = np.zeros(my_board.shape, dtype=int)
-
-
-            print(len(my_board))
-            for i in range(0,len(my_board)):
-                for j in range(0, len(my_board)):
-                    #print(my_board[i][j])
-                    #fused_board[i][j] = their_board[i][j]
-                    if my_board[i][j] == 5 and their_board[i][j] != 5:
-                        fused_board[i][j] = their_board[i][j]
-                    elif my_board[i][j] != 5 and their_board[i][j] == 5:
-                        fused_board[i][j] = my_board[i][j]
-                    else:
-                        fused_board[i][j] = 5
-
-            #fused_board = np.array(fused_board)
-            print(fused_board)
+        
 
 
             #print(int_to_struct(obs["message"][0]))
