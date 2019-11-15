@@ -154,47 +154,39 @@ class JukeRadio(BaseAgent):
         super(JukeRadio, self).__init__(*args, **kwargs)
         self.action_queue = queue.PriorityQueue()
 
-        self.beliefs = {'position': (), 
-                        'obs': [], 
-                        'threats': [], 
-                        'powerups': [], 
-                        'neighbors':[], 
-                        'enemies': [], 
-                        'wood': [], 
-                        'routes': {},
-                        'shared_board': None,
-                        'board_memory': None}
+        self.beliefs = {
+            'position': (), 
+            'obs': [], 
+            'threats': [], 
+            'powerups': [], 
+            'neighbors':[], 
+            'enemies': [], 
+            'wood': [], 
+            'routes': {},
+            'board': np.full((11, 11), constants.Item.Fog.value),
+            'bomb_blast_strength': np.full((11,11), 0)
+        }
         self.desires = [JukeRadio.Desires.POWER_UP]
         self.intentions = {'go_to': None, 'avoid': [], 'drop_bomb_at': None, 'wait': None}
         self.current_plan = []
 
-    def is_threatened(self, obs, posn):
-        r, c = posn
-
-        #TODO: go back and look at distance vs bomb strength
-
-        # find any bombs in the same row/col as this space
-        for b_c in range(10):
-            if obs['bomb_life'][r, b_c] > 0 or obs['flame_life'][r, b_c] > 0:
-                return True
-        for b_r in range(10):
-            if obs['bomb_life'][b_r, c] or obs['flame_life'][b_r, c] > 0:
-                return True
-
-        # check whether or not there's flames here
-        if (constants.Item.Flames.value == obs['board'][r,c]) or obs['bomb_life'][r,c] > 0:
-            return True
-
-        return False
-
     # Find spaces that threaten us
     def find_threatened_spaces(self, obs):
-        threatened = set()
-        for r in range(len(obs['board'])):
-            for c in range(len(obs['board'])):
-                if self.is_threatened(obs, (r,c)):
-                    threatened.add((r, c))
-        return threatened
+        threatened_spaces = set()
+        for i in range(len(self.beliefs['bomb_blast_strength'])):
+            for j in range(len(self.beliefs['bomb_blast_strength'])):
+                strength = self.beliefs['bomb_blast_strength'][i, j]
+                if strength > 0:
+                    radius = int(strength)-1
+                    for row in range(i-radius,i+radius+1):
+                        for col in range(j-radius,j+radius+1):
+                            threatened_spaces.add((row,col))
+
+
+                if self.beliefs['board'][i, j] == constants.Item.Flames.value:
+                    threatened_spaces.add((i, j))
+
+        return threatened_spaces
                 
     # Get the spaces adjacent to us
     def get_neighbors(self, obs,posn):
@@ -217,11 +209,11 @@ class JukeRadio(BaseAgent):
         return neighbors
                 
     # Returns back board locations of certain objects
-    def find_objects(self,obs,item_types):
+    def find_objects(self,board,item_types):
         found_items = []
-        for r in range(len(obs['board'])):
-            for c in range(len(obs['board'][0])):
-                if obs['board'][r,c] in item_types:
+        for r in range(len(board)):
+            for c in range(len(board[0])):
+                if board[r,c] in item_types:
                     found_items.append( (r, c) )
 
         return found_items
@@ -231,92 +223,66 @@ class JukeRadio(BaseAgent):
     passables = power_ups + [constants.Item.Passage.value]
 
     def process_messages(self, obs, beliefs):
-        if obs['step_count'] == 0:
-            beliefs['shared_board'] = obs['board']
+        message_received = None
         if obs["message"][0] != 0:
             message_received = int_to_struct(obs["message"][0])
-
-            my_board = obs["board"]
-            their_board = message_received["inform"]["beliefs"]["obs"]["board"]
-
-            fused_board = np.zeros(my_board.shape, dtype=int)
-            #print(len(my_board))
-            for i in range(0,len(my_board)):
-                for j in range(0, len(my_board)):
-                    #print(my_board[i][j])
-                    #fused_board[i][j] = their_board[i][j]
-                    if my_board[i][j] == 5 and their_board[i][j] != 5:
-                        fused_board[i][j] = their_board[i][j]
-                    elif my_board[i][j] != 5 and their_board[i][j] == 5:
-                        fused_board[i][j] = my_board[i][j]
-                    else:
-                        fused_board[i][j] = 5
-
-            beliefs["shared_board"] = fused_board
-
         
-        #print(beliefs['shared_board'])
+        def update_if_visible(r, c, v):
+            return obs['board'][r, c] != constants.Item.Fog.value
+
+        board_defaults = {
+            'board': update_if_visible,
+            'bomb_blast_strength': update_if_visible,
+        }
+
+        for b in board_defaults:
+            my_board = obs[b]
+
+            their_board = np.array([])
+            # Parse the message, if we got one
+            if message_received:
+                their_board = message_received["inform"]["beliefs"]["obs"][b]
+
+            self.update_board(beliefs[b], my_board, their_board, board_defaults[b])
+
         return beliefs
 
     #Keeps track of past states of the board so we at least remember some things
-    def update_board_memory(self, obs, beliefs,current_board_obs):
-        if obs['step_count'] == 0:
-            beliefs['board_memory'] = obs['board']
-        else:
-            #current_board_obs = obs['board']
-            board_memory = beliefs['board_memory']
-
-            for i in range(len(current_board_obs)):
-                for j in range(len(current_board_obs)):
-                    if current_board_obs[i][j] != 5:
-                        board_memory[i][j] = current_board_obs[i][j]
-
-            beliefs['board_memory'] = board_memory
-
-
-        #if obs["teammate"].value == 12:
-            #print(current_board_obs)
-        #    print("SHARED",current_board_obs)
-        #    print("MERGED",beliefs['board_memory'])
-
-        return beliefs
+    def update_board(self, board, new_board_0, new_board_1, should_update):
+        for i in range(len(board)):
+            for j in range(len(board)):
+                if should_update(i, j, new_board_0[i, j]):
+                    board[i, j] = new_board_0[i, j]
+                elif new_board_1.any() and should_update(i, j, new_board_1[i, j]):
+                    board[i, j] = new_board_1[i, j]
 
     # Change our current beliefs of the world
     def brf(self,beliefs,obs):
         beliefs['obs'] = obs
 
         beliefs = self.process_messages(obs, beliefs)
-        #beliefs['obs']['board'] = beliefs["shared_board"]
-        beliefs = self.update_board_memory(obs,beliefs,beliefs['shared_board'])
-        #beliefs['obs']['board'] = beliefs['board_memory']
 
         r, c = obs['position']
-
-        #beliefs['obs']['board'] = beliefs['board_memory']
-
-        #if obs["teammate"].value == 12:
-        #    print(beliefs['shared_board'])
-            #print(beliefs['obs']['board'])
 
         beliefs['position'] = (r,c)
         beliefs['neighbors'] = self.get_neighbors(obs,beliefs['position'])
         beliefs['threatened'] = self.find_threatened_spaces(beliefs['obs'])
 
+        def find_accessible(items):
+            item_list = self.find_objects(beliefs['board'], items)
+            item_paths = {i: astar(beliefs['board'], beliefs['position'], i, JukeRadio.passables) for i in item_list}
+
+            valid_items = []
+            for item in item_paths:
+                if item_paths[item]:
+                    valid_items.append(item)
+            return valid_items
+
         # Only list powerups that are within range
-        power_up_list = self.find_objects(obs,JukeRadio.power_ups)
-        power_up_paths = {power_up: astar(beliefs['obs']['board'], beliefs['position'], power_up, JukeRadio.passables) for power_up in power_up_list}
+        beliefs['powerups'] = find_accessible(JukeRadio.power_ups)
 
-        valid_powerups = []
-        for power_up in power_up_paths:
-            if power_up_paths[power_up]:
-                valid_powerups.append(power_up)
-
-        
-        beliefs['powerups'] = valid_powerups
-
-        beliefs['enemies'] = self.find_objects(obs, obs['enemies'])
-        beliefs['wood'] = self.find_objects(obs, [constants.Item.Wood.value])
-
+        beliefs['enemies'] = self.find_objects(beliefs['board'], obs['enemies'])
+        beliefs['wood'] = find_accessible([constants.Item.Wood.value])
         
 
         return beliefs
@@ -362,8 +328,8 @@ class JukeRadio(BaseAgent):
         # If we want to FLEE
         if desires[0] == JukeRadio.Desires.FLEE:
             # Find nearest spot that's empty and not in threats
-            safe_spots = set(self.find_objects(beliefs['obs'], [constants.Item.Passage.value])) - beliefs['threatened']
-            paths = {location: astar(beliefs['obs']['board'], beliefs['position'], location[0:2], JukeRadio.passables+[constants.Item.Bomb.value]) for location in safe_spots}
+            safe_spots = set(self.find_objects(beliefs['board'], [constants.Item.Passage.value])) - beliefs['threatened']
+            paths = {location: astar(beliefs['board'], beliefs['position'], location[0:2], JukeRadio.passables+[constants.Item.Bomb.value]) for location in safe_spots}
             
             # Go to that spot
             if paths:
@@ -375,7 +341,7 @@ class JukeRadio(BaseAgent):
         # If we want to POWERUP
         elif desires[0] == JukeRadio.Desires.POWER_UP and beliefs['powerups']:
             # Find a path to all the powerups
-            paths = {powerup: astar(beliefs['obs']['board'], beliefs['position'], powerup[0:2], JukeRadio.passables) for powerup in beliefs['powerups']}
+            paths = {powerup: astar(beliefs['board'], beliefs['position'], powerup[0:2], JukeRadio.passables) for powerup in beliefs['powerups']}
             
             if paths:
                 # Take the shortest path
@@ -394,7 +360,7 @@ class JukeRadio(BaseAgent):
         elif desires[0] == JukeRadio.Desires.CLEAR_ENV and beliefs['wood']:
             # Find the paths to wood on the board
             
-            paths = {wood: astar(beliefs['obs']['board'], beliefs['position'], wood[0:2], JukeRadio.passables+[constants.Item.Wood.value]) for wood in beliefs['wood']}
+            paths = {wood: astar(beliefs['board'], beliefs['position'], wood[0:2], JukeRadio.passables+[constants.Item.Wood.value]) for wood in beliefs['wood']}
             if paths:
 
                 # Find the closest
@@ -423,16 +389,16 @@ class JukeRadio(BaseAgent):
 
         # If we desire to HIDE from the enemy
         elif desires[0] == JukeRadio.Desires.HIDE:
-            safe_spots = set(self.find_objects(beliefs['obs'], [constants.Item.Passage.value])) - beliefs['threatened']
-            found_enemies = self.find_objects(beliefs['obs'], [enemy.value for enemy in beliefs['obs']['enemies']])
+            safe_spots = set(self.find_objects(beliefs['board'], [constants.Item.Passage.value])) - beliefs['threatened']
+            found_enemies = self.find_objects(beliefs['board'], [enemy.value for enemy in beliefs['obs']['enemies']])
 
             if found_enemies:
                 found_enemy = found_enemies[0]
-                paths = {location: astar(beliefs['obs']['board'], found_enemy, location[0:2], JukeRadio.passables+[constants.Item.Bomb.value]) for location in safe_spots}
+                paths = {location: astar(beliefs['board'], found_enemy, location[0:2], JukeRadio.passables+[constants.Item.Bomb.value]) for location in safe_spots}
                 
                 if paths:
                     farthest_path_location = max(paths, key=lambda p: len(paths[p]) if paths[p] and not self.contains_threat(paths[p],beliefs['threatened']) else -np.Infinity)
-                    path_to_farthest_location = astar(beliefs['obs']['board'], beliefs['position'], farthest_path_location, JukeRadio.passables)
+                    path_to_farthest_location = astar(beliefs['board'], beliefs['position'], farthest_path_location, JukeRadio.passables)
                     dest = farthest_path_location
 
                     if path_to_farthest_location and self.contains_threat(path_to_farthest_location,beliefs['threatened']):
@@ -510,7 +476,7 @@ class JukeRadio(BaseAgent):
                 next_pos = (r,c+1)
 
             if next_pos in beliefs['threatened']:
-                safe_board = beliefs['obs']['board'].copy()
+                safe_board = beliefs['board'].copy()
 
                 for r in range(len(safe_board)):
                     for c in range(len(safe_board[0])):
@@ -518,6 +484,9 @@ class JukeRadio(BaseAgent):
                             safe_board[r,c] = constants.Item.Rigid.value
 
                 new_path = astar(safe_board, beliefs['position'], dest, JukeRadio.passables)
+                #print("REPLAN")
+                #print(safe_board)
+                #print(new_path)
                 beliefs['routes'][dest] = new_path
                 return False
 
@@ -550,6 +519,10 @@ class JukeRadio(BaseAgent):
         #message = obs['message']
 
         self.beliefs = self.brf(self.beliefs, obs)
+        #print(self.beliefs["obs"]['bomb_life'])
+        #print(self.beliefs["obs"]['flame_life'])
+        #print(self.beliefs["obs"]['bomb_blast_strength'])
+        #print(self.beliefs["obs"]['board'])
 
         #If we don't have a plan, or we reconsider our current plan, change desires and intentions
         if not self.current_plan or self.reconsider(self.intentions, self.beliefs):
@@ -560,7 +533,7 @@ class JukeRadio(BaseAgent):
         if not self.current_plan or not self.sound(self.current_plan, self.intentions, self.beliefs):
             self.current_plan = self.plan(self.beliefs, self.intentions)
 
-        debug = False
+        debug = True
         if debug:
             print("D:",self.desires)
             print("I:",self.intentions)
@@ -577,10 +550,6 @@ class JukeRadio(BaseAgent):
 
         self.message_to_send = {"request": [], "inform": {"beliefs": self.beliefs}, "inquire": []}
 
-        
-
-
-            #print(int_to_struct(obs["message"][0]))
 
         self.message_to_send = struct_to_int(self.message_to_send)
 
