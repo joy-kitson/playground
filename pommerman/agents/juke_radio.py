@@ -270,12 +270,13 @@ class JukeRadio(BaseAgent):
 
         def find_accessible(items):
             item_list = self.find_objects(beliefs['board'], items)
-            item_paths = {i: astar(beliefs['board'], beliefs['position'], i, JukeRadio.passables) for i in item_list}
+            item_paths = {i: astar(beliefs['board'], beliefs['position'], i, JukeRadio.passables + items) for i in item_list}
 
             valid_items = []
             for item in item_paths:
                 if item_paths[item]:
                     valid_items.append(item)
+
             return valid_items
 
         # Only list powerups that are within range
@@ -283,6 +284,7 @@ class JukeRadio(BaseAgent):
 
         beliefs['enemies'] = self.find_objects(beliefs['board'], obs['enemies'])
         beliefs['wood'] = find_accessible([constants.Item.Wood.value])
+        #print(beliefs["wood"])
         
 
         return beliefs
@@ -385,7 +387,27 @@ class JukeRadio(BaseAgent):
         # YES, killing is badong!
         # From this moment, I will stand for the opposite of killing, gnodab.
         elif desires[0] == JukeRadio.Desires.KILL:
-            pass
+            found_enemies = self.find_objects(beliefs['board'], [enemy.value for enemy in beliefs['obs']['enemies']])
+
+            if found_enemies:
+                found_enemy = found_enemies[0]
+                paths = {enemy: astar(beliefs['board'], beliefs['position'], enemy, JukeRadio.passables+[constants.Item.Bomb.value]) for enemy in found_enemy}
+                
+                if paths:
+                    shortest_path = min(paths, key=lambda p: len(paths[p]) if paths[p] and not self.contains_threat(paths[p],beliefs['threatened']) else np.Infinity)
+
+                    if path_to_farthest_location and self.contains_threat(shortest, beliefs['threatened']):
+                        intentions['wait'] = True
+                    
+                    if path:
+                    # We also just drop the bomb at the adjacent space, not the actual wood space
+                        path.pop()
+                        dest = path[-1]
+
+                        intentions['go_to'] = dest
+                        intentions['drop_bomb_at'] = dest
+                        beliefs['routes'][dest] = path_to_farthest_location 
+            
 
         # If we desire to HIDE from the enemy
         elif desires[0] == JukeRadio.Desires.HIDE:
@@ -406,6 +428,7 @@ class JukeRadio(BaseAgent):
                     
                     intentions['go_to'] = dest
                     beliefs['routes'][dest] = path_to_farthest_location 
+
 
         return intentions
 
@@ -459,6 +482,9 @@ class JukeRadio(BaseAgent):
     # Is our plan OK? (Will it get us killed?)
     def sound(self, current_plan, intentions, beliefs):
 
+        if self.desires[0] == JukeRadio.Desires.KILL:
+            return True
+
         # If our next move in the plan puts us in danger, replan
         if intentions['go_to']:
             dest = intentions['go_to']
@@ -509,7 +535,7 @@ class JukeRadio(BaseAgent):
 
         #We're pacifists, so run away if there's nothing better to do!
         else:
-            return [JukeRadio.Desires.HIDE]
+            return [JukeRadio.Desires.KILL]
 
    
 
@@ -533,7 +559,7 @@ class JukeRadio(BaseAgent):
         if not self.current_plan or not self.sound(self.current_plan, self.intentions, self.beliefs):
             self.current_plan = self.plan(self.beliefs, self.intentions)
 
-        debug = True
+        debug = False
         if debug:
             print("D:",self.desires)
             print("I:",self.intentions)
