@@ -23,12 +23,12 @@ def main():
     env = pommerman.make('PommeRadioCompetition-v2', agent_list)
 
     # Run the episodes just like OpenAI Gym
-    for i_episode in range(1):
+    for i_episode in range(10):
         state = env.reset()
         done = False
         while not done:
             #input()
-            env.render()
+            #env.render()
             
             actions = env.act(state)
             state, reward, done, info = env.step(actions)

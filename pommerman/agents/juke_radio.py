@@ -219,16 +219,16 @@ class JukeRadio(BaseAgent):
         return found_items
 
     power_ups = [constants.Item.ExtraBomb.value, constants.Item.IncrRange.value, constants.Item.Kick.value]
-    #passables = power_ups + [constants.Item.Passage.value, constants.Item.Fog.value]
     passables = power_ups + [constants.Item.Passage.value]
 
+    # Change our behavior and update our worldview based off of the messages we recieved
     def process_messages(self, obs, beliefs):
         message_received = None
         if obs["message"][0] != 0:
             message_received = int_to_struct(obs["message"][0])
         
-        def update_if_visible(r, c, v):
-            return obs['board'][r, c] != constants.Item.Fog.value
+        def update_if_visible(r, c, v,board):
+            return board[r, c] != constants.Item.Fog.value
 
         board_defaults = {
             'board': update_if_visible,
@@ -243,7 +243,8 @@ class JukeRadio(BaseAgent):
             if message_received:
                 their_board = message_received["inform"]["beliefs"]["obs"][b]
 
-            self.update_board(beliefs[b], my_board, their_board, board_defaults[b])
+
+            beliefs[b] = self.update_board(beliefs[b], my_board, their_board, board_defaults[b])
 
         return beliefs
 
@@ -251,10 +252,12 @@ class JukeRadio(BaseAgent):
     def update_board(self, board, new_board_0, new_board_1, should_update):
         for i in range(len(board)):
             for j in range(len(board)):
-                if should_update(i, j, new_board_0[i, j]):
+                if should_update(i, j, new_board_0[i, j], new_board_0):
                     board[i, j] = new_board_0[i, j]
-                elif new_board_1.any() and should_update(i, j, new_board_1[i, j]):
+                elif new_board_1.any() and should_update(i, j, new_board_1[i, j],new_board_1):
                     board[i, j] = new_board_1[i, j]
+
+        return board
 
     # Change our current beliefs of the world
     def brf(self,beliefs,obs):
@@ -382,21 +385,19 @@ class JukeRadio(BaseAgent):
                     intentions['drop_bomb_at'] = dest
                     beliefs['routes'][dest] = path
 
-        # Killing is wrong, and bad. 
-        # There should be a new, stronger word for killing like badwrong or badong. 
-        # YES, killing is badong!
-        # From this moment, I will stand for the opposite of killing, gnodab.
         elif desires[0] == JukeRadio.Desires.KILL:
             found_enemies = self.find_objects(beliefs['board'], [enemy.value for enemy in beliefs['obs']['enemies']])
 
             if found_enemies:
-                found_enemy = found_enemies[0]
-                paths = {enemy: astar(beliefs['board'], beliefs['position'], enemy, JukeRadio.passables+[constants.Item.Bomb.value]) for enemy in found_enemy}
+                #found_enemy = found_enemies[0]
+                paths = {enemy: astar(beliefs['board'], beliefs['position'], enemy, JukeRadio.passables+[constants.Item.Bomb.value, constants.Item.Agent0.value,constants.Item.Agent1.value,constants.Item.Agent2.value,constants.Item.Agent3.value]) for enemy in found_enemies}
                 
                 if paths:
                     shortest_path = min(paths, key=lambda p: len(paths[p]) if paths[p] and not self.contains_threat(paths[p],beliefs['threatened']) else np.Infinity)
 
-                    if path_to_farthest_location and self.contains_threat(shortest, beliefs['threatened']):
+                    path = paths[shortest_path]
+
+                    if path and self.contains_threat(path, beliefs['threatened']):
                         intentions['wait'] = True
                     
                     if path:
@@ -406,7 +407,8 @@ class JukeRadio(BaseAgent):
 
                         intentions['go_to'] = dest
                         intentions['drop_bomb_at'] = dest
-                        beliefs['routes'][dest] = path_to_farthest_location 
+                        beliefs['routes'][dest] = path
+
             
 
         # If we desire to HIDE from the enemy
@@ -479,6 +481,25 @@ class JukeRadio(BaseAgent):
         else:
             return [constants.Action.Stop]
 
+
+
+    def get_following_pos(self, current_plan, intentions, beliefs):
+        dest = intentions['go_to']
+        next_move = current_plan[-1]
+        r,c = beliefs['position']
+        next_pos = (r,c)
+
+        if next_move == constants.Action.Up:
+            next_pos = (r-1,c)
+        elif next_move == constants.Action.Down:
+            next_pos = (r+1,c)
+        elif next_move == constants.Action.Left:
+            next_pos = (r,c-1)
+        elif next_move == constants.Action.Right:
+            next_pos = (r,c+1)
+
+        return next_pos
+
     # Is our plan OK? (Will it get us killed?)
     def sound(self, current_plan, intentions, beliefs):
 
@@ -488,18 +509,8 @@ class JukeRadio(BaseAgent):
         # If our next move in the plan puts us in danger, replan
         if intentions['go_to']:
             dest = intentions['go_to']
-            next_move = current_plan[-1]
-            r,c = beliefs['position']
-            next_pos = (r,c)
 
-            if next_move == constants.Action.Up:
-                next_pos = (r-1,c)
-            elif next_move == constants.Action.Down:
-                next_pos = (r+1,c)
-            elif next_move == constants.Action.Left:
-                next_pos = (r,c-1)
-            elif next_move == constants.Action.Right:
-                next_pos = (r,c+1)
+            next_pos = self.get_following_pos(current_plan, intentions, beliefs)
 
             if next_pos in beliefs['threatened']:
                 safe_board = beliefs['board'].copy()
@@ -510,9 +521,6 @@ class JukeRadio(BaseAgent):
                             safe_board[r,c] = constants.Item.Rigid.value
 
                 new_path = astar(safe_board, beliefs['position'], dest, JukeRadio.passables)
-                #print("REPLAN")
-                #print(safe_board)
-                #print(new_path)
                 beliefs['routes'][dest] = new_path
                 return False
 
@@ -540,16 +548,9 @@ class JukeRadio(BaseAgent):
    
 
     def act(self,obs,action_space):
-
         # A custom agent using the BDI arch.
-        #message = obs['message']
 
         self.beliefs = self.brf(self.beliefs, obs)
-        #print(self.beliefs["obs"]['bomb_life'])
-        #print(self.beliefs["obs"]['flame_life'])
-        #print(self.beliefs["obs"]['bomb_blast_strength'])
-        #print(self.beliefs["obs"]['board'])
-
         #If we don't have a plan, or we reconsider our current plan, change desires and intentions
         if not self.current_plan or self.reconsider(self.intentions, self.beliefs):
             self.desires = self.options(self.beliefs, self.intentions)
@@ -570,14 +571,11 @@ class JukeRadio(BaseAgent):
         #This is in case something slips through
         #If we don't have anything to do, just do nothing 
         if len(self.current_plan) == 0:
-            self.current_plan.append([constants.Action.Stop])
+            self.current_plan.append(constants.Action.Stop)
 
-        #print(self.beliefs["message"])
-
-        self.message_to_send = {"request": [], "inform": {"beliefs": self.beliefs}, "inquire": []}
-
-
+        self.message_to_send = {"inform": {"beliefs": self.beliefs}}
         self.message_to_send = struct_to_int(self.message_to_send)
+
 
         return self.current_plan.pop(), self.message_to_send, PLACEHOLDER
 
