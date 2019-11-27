@@ -12,13 +12,12 @@ def main():
     print(pommerman.REGISTRY)
 
     # Create a set of agents (exactly four)
+    """
     agent_list = [
-        #agents.SimpleAgent(),
         agents.SimpleAgent(),
         agents.SimpleAgent(),
         agents.SimpleAgent(),
         agents.SimpleAgent()
-        # agents.DockerAgent("pommerman/simple-agent", port=12345),
     ]
 
     print("------")
@@ -26,28 +25,50 @@ def main():
     print("-------")
     # Make the "Free-For-All" environment using the agent list
     env = pommerman.make('PommeFFACompetition-v0', agent_list)
+    """
 
-    # Run the episodes just like OpenAI Gym
-    #n = 100
-    winners = [0,0,0]
+    NUM_EPOCHS = 3
+    NUM_ROLLOUTS = 2
+
+    for epoch in range(NUM_EPOCHS):
+        agent_list = [
+                agents.JukeBotDeep(),
+                agents.SimpleAgent(),
+                agents.SimpleAgent(),
+                agents.SimpleAgent()
+            ]
+        
+        env = pommerman.make('PommeFFACompetition-v0', agent_list)
+
+        for num_rollout in range(NUM_ROLLOUTS):
+
+            state = env.reset()
+            done = False
+
+            while not done:
+                env.render()
+                actions = env.act(state)
+                state, reward, done, info = env.step(actions)
+
+            env.close()
+
+        print("DONE EPOCH:",epoch)
+
+
+
+"""
     n=1
     for i_episode in range(n):
         state = env.reset()
         done = False
         while not done:
-            #env.render()
-            #input()
-            #print(state)
+            env.render()
             actions = env.act(state)
             state, reward, done, info = env.step(actions)
-            print(reward,done)
         print('Episode {} finished'.format(i_episode))
-        print(info)
-        if info['result'].value == 0:
-            winners[info['winners'][0]]+=1
     
-    print(winners)
     env.close()
+    """
 
 
 if __name__ == '__main__':

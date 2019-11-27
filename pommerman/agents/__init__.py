@@ -9,3 +9,4 @@ from .simple_agent import SimpleAgent
 from .tensorforce_agent import TensorForceAgent
 from .juke_bot import JukeBot
 from .juke_radio import JukeRadio
+from .juke_bot_deep import JukeBotDeep

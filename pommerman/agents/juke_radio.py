@@ -543,7 +543,7 @@ class JukeRadio(BaseAgent):
 
         #We're pacifists, so run away if there's nothing better to do!
         else:
-            return [JukeRadio.Desires.KILL]
+            return [JukeRadio.Desires.HIDE]
 
    
 

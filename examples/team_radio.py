@@ -28,7 +28,7 @@ def main():
         done = False
         while not done:
             #input()
-            #env.render()
+            env.render()
             
             actions = env.act(state)
             state, reward, done, info = env.step(actions)
