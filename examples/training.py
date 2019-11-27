@@ -1,6 +1,7 @@
 '''An example to show how to set up an pommerman game programmatically'''
 import pommerman
 from pommerman import agents
+from pommerman.agents.memory import Memory
 
 from collections import defaultdict
 import queue
@@ -99,18 +100,28 @@ def main():
                 agents.SimpleAgent(),
                 agents.SimpleAgent()
             ]
+        NOODLE_INDEX = 0
         
         env = pommerman.make('PommeFFACompetition-v0', agent_list)
 
         for num_rollout in range(NUM_ROLLOUTS):
 
             state = env.reset()
+            memory = Memory(600)
             done = False
 
+            # TODO Terminate loop when agent dies
             while not done:
                 env.render()
                 actions = env.act(state)
-                state, reward, done, info = env.step(actions)
+                print(actions[0])
+                next_state, reward, done, info = env.step(actions)
+                
+                # we'll remember this!
+                mask = 0 if done else 1
+                memory.push(state, next_state, actions[NOODLE_INDEX], reward, mask)
+
+                state = next_state
 
             env.close()
 
