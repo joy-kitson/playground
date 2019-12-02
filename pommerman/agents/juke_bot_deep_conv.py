@@ -12,7 +12,7 @@ from .. import constants
 from .. import utility
 
 import torch
-class JukeBotDeep(BaseAgent):
+class JukeBotDeepConv(BaseAgent):
     """This is a baseline agent. After you can beat it, submit your agent to
     compete.
     """
@@ -27,43 +27,45 @@ class JukeBotDeep(BaseAgent):
         del kwargs["epsilon"]
         del kwargs["debug"]
 
-        super(JukeBotDeep, self).__init__(*args, **kwargs)
+        super(JukeBotDeepConv, self).__init__(*args, **kwargs)
 
 
-        
+        #print("JUKE DEEP")
         #self.target_net = QNet(11*11, 6)
         self.target_net = net
         self.epsilon = epsilon
         self.debug = debug
+        #print(self.target_net)
         
         if debug:
             print(self.epsilon)
 
     def act(self, obs, action_space):
-        board = obs['board']
-        bombs = obs['bomb_blast_strength']
+        board = torch.tensor(obs['board']).float()
+        bombs = torch.tensor(obs['bomb_blast_strength']).float()
+        
+        state = torch.stack([board,bombs])
+        state = state.unsqueeze(0)
+        #print(board)
+        #print(state)
         
         
-        board = board.flatten()
-        bombs = bombs.flatten()
+        #board = board.flatten()
+        #ombs = bombs.flatten()
         
-        flat = np.concatenate((board,bombs),axis=None)
+        #flat = np.concatenate((board,bombs),axis=None)
         #print(flat)
         
         if self.debug:
-            print(flat)
+            print(state)
 
-        flat = torch.tensor([flat]).float()
+        #flat = torch.tensor([flat]).float()
         
-        return self.get_action(flat,self.target_net,self.epsilon,action_space)
+        return self.get_action(state,self.target_net,self.epsilon,action_space)
 
     def get_action(self, state, target_net, epsilon, action_space):
         if np.random.rand() <= epsilon:
-            res = 5
-            while res == 5:
-                res = action_space.sample()
-            
-            return res
+            return action_space.sample()
         else:
             act = target_net.get_action(state)
             return act
